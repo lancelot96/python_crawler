@@ -1,6 +1,7 @@
 import re
 import queue
 import requests
+import lxml.html as lxml
 from urllib import parse, robotparser
 
 
@@ -8,9 +9,8 @@ import throttle
 
 
 def get_links(html):
-    # <a href="?discussion_start=10#comment-section">2</a>
-    web_regex = re.compile(r"<a +href=[\'\"](.*?)[\'\"]")
-    return web_regex.findall(html)
+    dom = lxml.fromstring(html)
+    return map(lambda a: a.get("href"), dom.cssselect("a"))
 
 
 def parse_robots(robots_url):
@@ -43,9 +43,9 @@ def download(url, headers, num_retries=3, proxies=None):
 
 def link_crawler(
         start_url, link_regex, delay=5, robots_url_suffix="robots.txt",
-        user_agent="wswp",
+        user_agent="wswp", max_depth=5,
     ):
-    seen = set()
+    seen = {}
     crawler_queue = queue.Queue()
     crawler_queue.put(start_url)
 
@@ -65,18 +65,30 @@ def link_crawler(
 
         download_throttle.wait(url)
         html = download(url, headers=headers)
-        # TODO
+
+        dom = lxml.fromstring(html)
+        elems = dom.cssselect("p > span[class=\"\"]")
+        for e in elems:
+            print(e.text_content())
+
+        depth = seen.get(url, 0)
+        if depth == max_depth:
+            continue
 
         for link in get_links(html):
             if link and re.match(link_regex, link):
                 abs_link = parse.urljoin(url, link)
                 if abs_link not in seen:
                     crawler_queue.put(abs_link)
-                    seen.add(abs_link)
+                    seen[abs_link] = depth + 1
 
 
-url = "https://alexa.chinaz.com/Country/index_CN.html"
-link_regex = r"index_CN_"
+if __name__ == "__main__":
+    url = "https://alexa.chinaz.com/Country/index_CN.html"
+    link_regex = r"index_CN_"
 
 
-link_crawler(url, link_regex)
+    url = "https://movie.douban.com/subject/26727273/episode/1/?discussion_start=10#comment-section"
+    link_regex = r"\?discussion_start="
+
+    link_crawler(url, link_regex)
