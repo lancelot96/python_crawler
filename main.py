@@ -1,8 +1,10 @@
 import re
-import time
 import queue
 import requests
 from urllib import parse, robotparser
+
+
+import throttle
 
 
 def get_links(html):
@@ -49,6 +51,8 @@ def link_crawler(
 
     headers = {"User-Agent": user_agent}
 
+    download_throttle = throttle.Throttle(delay)
+
     protocol, domain, *_ = parse.urlsplit(start_url)
     robots_url = parse.urlunsplit((protocol, domain, robots_url_suffix, "", ""))
     rp = parse_robots(robots_url)
@@ -59,7 +63,7 @@ def link_crawler(
         if rp and not rp.can_fetch(user_agent, url):
             continue
 
-        time.sleep(delay)
+        download_throttle.wait(url)
         html = download(url, headers=headers)
         # TODO
 
