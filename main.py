@@ -43,7 +43,7 @@ def download(url, headers, num_retries=3, proxies=None):
 
 def link_crawler(
         start_url, link_regex, delay=5, robots_url_suffix="robots.txt",
-        user_agent="wswp", max_depth=5,
+        user_agent="wswp", max_depth=5, scrape_callback=None,
     ):
     seen = {}
     crawler_queue = queue.Queue()
@@ -66,10 +66,8 @@ def link_crawler(
         download_throttle.wait(url)
         html = download(url, headers=headers)
 
-        dom = lxml.fromstring(html)
-        elems = dom.cssselect("p > span[class=\"\"]")
-        for e in elems:
-            print(e.text_content())
+        if scrape_callback:
+            scrape_callback(url, html)
 
         depth = seen.get(url, 0)
         if depth == max_depth:
@@ -83,12 +81,15 @@ def link_crawler(
                     seen[abs_link] = depth + 1
 
 
+def callback(url=None, html=None):
+    dom = lxml.fromstring(html)
+    with open("top-500-websites.txt", "a+", encoding="utf8") as file:
+        for e in dom.cssselect(".righttxt span"):
+            file.write(f"http://{e.text_content()}\n")
+
+
 if __name__ == "__main__":
     url = "https://alexa.chinaz.com/Country/index_CN.html"
     link_regex = r"index_CN_"
 
-
-    url = "https://movie.douban.com/subject/26727273/episode/1/?discussion_start=10#comment-section"
-    link_regex = r"\?discussion_start="
-
-    link_crawler(url, link_regex)
+    link_crawler(url, link_regex, 0, scrape_callback=callback)
