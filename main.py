@@ -32,7 +32,7 @@ def link_crawler(
 
     headers = {"User-Agent": user_agent}
 
-    D = downloader.Downloader(headers)
+    D = downloader.Downloader(headers, delay=delay)
 
     protocol, domain, *_ = parse.urlsplit(start_url)
     robots_url = parse.urlunsplit((protocol, domain, robots_url_suffix, "", ""))
@@ -46,6 +46,8 @@ def link_crawler(
             continue
 
         html = D(url, num_retries)
+        if not html:
+            continue
 
         if scrape_callback:
             scrape_callback(url, html)
@@ -65,10 +67,10 @@ def link_crawler(
 
 def callback(url=None, html=None):
     dom = lxml.fromstring(html)
-    with open("top-500-websites.txt", "a+", encoding="utf8") as file:
-        for e in dom.cssselect(".righttxt span"):
-            # file.write(f"http://{e.text_content()}\n")
-            print(e.text_content())
+    for e in dom.cssselect(".righttxt p"):
+        print(e.text_content())
+        # print(dir(e))
+        # exit(1)
 
 
 if __name__ == "__main__":

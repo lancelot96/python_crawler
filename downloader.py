@@ -18,8 +18,10 @@ class Downloader:
                 return result["html"]
 
             print(f"download error status")
-            if 500 <= result["code"] < 600:
-                print(f"retry for {i + 2} times")
+            if not result["code"] or 400 <= result["code"] < 500:
+                return None
+
+            print(f"retry for {i + 2} times")
 
     def download(self, url):
         self.throttle.wait(url)
