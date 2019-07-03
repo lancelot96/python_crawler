@@ -2,7 +2,7 @@ import re
 import time
 import queue
 import requests
-from urllib import parse
+from urllib import parse, robotparser
 
 
 def get_links(html):
@@ -11,10 +11,19 @@ def get_links(html):
     return web_regex.findall(html)
 
 
-def download(url, num_retries=3, user_agent="wswp", proxies=None):
-    print(f"try to download {url}")
+def parse_robots(robots_url):
+    print(f"robots url {robots_url}")
 
-    headers = {"User-Agent": user_agent}
+    try:
+        rp = robotparser.RobotFileParser(robots_url)
+        rp.read()
+        return rp
+    except Exception as e:
+        print(f"robots parse error {e}")
+
+
+def download(url, headers, num_retries=3, proxies=None):
+    print(f"try to download {url}")
 
     for i in range(num_retries):
         try:
@@ -30,16 +39,28 @@ def download(url, num_retries=3, user_agent="wswp", proxies=None):
             break
 
 
-def link_cwraler(start_url, link_regex, delay=5):
+def link_crawler(
+        start_url, link_regex, delay=5, robots_url_suffix="robots.txt",
+        user_agent="wswp",
+    ):
     seen = set()
     crawler_queue = queue.Queue()
     crawler_queue.put(start_url)
 
+    headers = {"User-Agent": user_agent}
+
+    protocol, domain, *_ = parse.urlsplit(start_url)
+    robots_url = parse.urlunsplit((protocol, domain, robots_url_suffix, "", ""))
+    rp = parse_robots(robots_url)
+
     while not crawler_queue.empty():
         url = crawler_queue.get()
 
+        if rp and not rp.can_fetch(user_agent, url):
+            continue
+
         time.sleep(delay)
-        html = download(url)
+        html = download(url, headers=headers)
         # TODO
 
         for link in get_links(html):
@@ -50,8 +71,8 @@ def link_cwraler(start_url, link_regex, delay=5):
                     seen.add(abs_link)
 
 
-url = "https://movie.douban.com/subject/26727273/episode/1/"
-link_regex = r"\?discussion_start="
+url = "https://alexa.chinaz.com/Country/index_CN.html"
+link_regex = r"index_CN_"
 
 
-link_cwraler(url, link_regex)
+link_crawler(url, link_regex)
