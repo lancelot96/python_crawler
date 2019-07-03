@@ -1,11 +1,9 @@
 import re
 import queue
-import requests
 import lxml.html as lxml
 from urllib import parse, robotparser
 
-
-import throttle
+import downloader
 
 
 def get_links(html):
@@ -24,26 +22,9 @@ def parse_robots(robots_url):
         print(f"robots parse error {e}")
 
 
-def download(url, headers, num_retries=3, proxies=None):
-    print(f"try to download {url}")
-
-    for i in range(num_retries):
-        try:
-            resp = requests.get(url, headers=headers, proxies=proxies)
-            if resp.status_code == 200:
-                return resp.text
-
-            print(f"download error status code {resp.status_code}")
-            if 500 <= resp.status_code < 600:
-                print(f"retry for {i + 2} times")
-        except requests.RequestException as e:
-            print(f"download error {e}")
-            break
-
-
 def link_crawler(
         start_url, link_regex, delay=5, robots_url_suffix="robots.txt",
-        user_agent="wswp", max_depth=5, scrape_callback=None,
+        user_agent="wswp", max_depth=5, scrape_callback=None, num_retries=3,
     ):
     seen = {}
     crawler_queue = queue.Queue()
@@ -51,7 +32,7 @@ def link_crawler(
 
     headers = {"User-Agent": user_agent}
 
-    download_throttle = throttle.Throttle(delay)
+    D = downloader.Downloader(headers)
 
     protocol, domain, *_ = parse.urlsplit(start_url)
     robots_url = parse.urlunsplit((protocol, domain, robots_url_suffix, "", ""))
@@ -61,16 +42,17 @@ def link_crawler(
         url = crawler_queue.get()
 
         if rp and not rp.can_fetch(user_agent, url):
+            print(f"blocked by robots.txt {url}")
             continue
 
-        download_throttle.wait(url)
-        html = download(url, headers=headers)
+        html = D(url, num_retries)
 
         if scrape_callback:
             scrape_callback(url, html)
 
         depth = seen.get(url, 0)
         if depth == max_depth:
+            print(f"touch max depth {url}")
             continue
 
         for link in get_links(html):
@@ -85,11 +67,12 @@ def callback(url=None, html=None):
     dom = lxml.fromstring(html)
     with open("top-500-websites.txt", "a+", encoding="utf8") as file:
         for e in dom.cssselect(".righttxt span"):
-            file.write(f"http://{e.text_content()}\n")
+            # file.write(f"http://{e.text_content()}\n")
+            print(e.text_content())
 
 
 if __name__ == "__main__":
     url = "https://alexa.chinaz.com/Country/index_CN.html"
     link_regex = r"index_CN_"
 
-    link_crawler(url, link_regex, 0, scrape_callback=callback)
+    link_crawler(url, link_regex, scrape_callback=callback)
