@@ -1,8 +1,10 @@
 import re
 import queue
+import itertools
 import lxml.html as lxml
 from urllib import parse, robotparser
 
+import diskcache
 import downloader
 
 
@@ -25,6 +27,7 @@ def parse_robots(robots_url):
 def link_crawler(
         start_url, link_regex, delay=5, robots_url_suffix="robots.txt",
         user_agent="wswp", max_depth=5, scrape_callback=None, num_retries=3,
+        cache={},
     ):
     seen = {}
     crawler_queue = queue.Queue()
@@ -32,7 +35,7 @@ def link_crawler(
 
     headers = {"User-Agent": user_agent}
 
-    D = downloader.Downloader(headers, delay=delay)
+    D = downloader.Downloader(headers, delay=delay, cache=cache)
 
     protocol, domain, *_ = parse.urlsplit(start_url)
     robots_url = parse.urlunsplit((protocol, domain, robots_url_suffix, "", ""))
@@ -49,15 +52,16 @@ def link_crawler(
         if not html:
             continue
 
+        links = []
         if scrape_callback:
-            scrape_callback(url, html)
+            links = scrape_callback(url, html) or links
 
         depth = seen.get(url, 0)
         if depth == max_depth:
             print(f"touch max depth {url}")
             continue
 
-        for link in get_links(html):
+        for link in itertools.chain(get_links(html), links):
             if link and re.match(link_regex, link):
                 abs_link = parse.urljoin(url, link)
                 if abs_link not in seen:
@@ -67,14 +71,14 @@ def link_crawler(
 
 def callback(url=None, html=None):
     dom = lxml.fromstring(html)
-    for e in dom.cssselect(".righttxt p"):
+    for e in dom.cssselect(".righttxt span"):
         print(e.text_content())
-        # print(dir(e))
-        # exit(1)
 
 
 if __name__ == "__main__":
     url = "https://alexa.chinaz.com/Country/index_CN.html"
     link_regex = r"index_CN_"
 
-    link_crawler(url, link_regex, scrape_callback=callback)
+    link_crawler(
+        url, link_regex, scrape_callback=callback, cache=diskcache.DiskCache(),
+    )
