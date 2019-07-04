@@ -27,7 +27,7 @@ def parse_robots(robots_url):
 def link_crawler(
         start_url, link_regex, delay=5, robots_url_suffix="robots.txt",
         user_agent="wswp", max_depth=5, scrape_callback=None, num_retries=3,
-        cache={},
+        cache=None,
     ):
     seen = {}
     crawler_queue = queue.Queue()
@@ -72,7 +72,8 @@ def link_crawler(
 def callback(url=None, html=None):
     dom = lxml.fromstring(html)
     for e in dom.cssselect(".righttxt span"):
-        print(e.text_content())
+        pass
+        # print(e.text_content())
 
 
 if __name__ == "__main__":
