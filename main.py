@@ -1,6 +1,8 @@
 import re
+import time
 import queue
 import itertools
+import threading
 import lxml.html as lxml
 from urllib import parse, robotparser
 
@@ -24,62 +26,86 @@ def parse_robots(robots_url):
         print(f"robots parse error {e}")
 
 
-def link_crawler(
+def threaded_crawler(
         start_url, link_regex, delay=5, robots_url_suffix="robots.txt",
         user_agent="wswp", max_depth=5, scrape_callback=None, num_retries=3,
-        cache=None,
+        cache=None, max_threads=10,
     ):
-    seen = {}
+    seen, robots = {}, {}
     crawler_queue = queue.Queue()
-    crawler_queue.put(start_url)
+
+    if isinstance(start_url, list):
+        for url in start_url:
+            crawler_queue.put(url)
+    else:
+        crawler_queue.put(start_url)
 
     headers = {"User-Agent": user_agent}
 
     D = downloader.Downloader(headers, delay=delay, cache=cache)
 
-    protocol, domain, *_ = parse.urlsplit(start_url)
-    robots_url = parse.urlunsplit((protocol, domain, robots_url_suffix, "", ""))
-    rp = parse_robots(robots_url)
+    def process():
+        while not crawler_queue.empty():
+            url = crawler_queue.get()
 
+            protocol, domain, *_ = parse.urlsplit(url)
+            robots_url = parse.urlunsplit((protocol, domain, robots_url_suffix, "", ""))
+            rp = robots.get(domain) or parse_robots(robots_url)
+
+            if rp and not rp.can_fetch(user_agent, url):
+                robots[domain] = rp
+                print(f"blocked by robots.txt {url}")
+                continue
+
+            html = D(url, num_retries)
+            if not html:
+                continue
+
+            links = []
+            if scrape_callback:
+                links = scrape_callback(url, html) or links
+
+            depth = seen.get(url, 0)
+            if depth == max_depth:
+                print(f"touch max depth {url}")
+                continue
+
+            for link in itertools.chain(get_links(html), links):
+                if link and re.match(link_regex, link):
+                    abs_link = parse.urljoin(url, link)
+                    if abs_link not in seen:
+                        crawler_queue.put(abs_link)
+                        seen[abs_link] = depth + 1
+
+    threads = []
     while not crawler_queue.empty():
-        url = crawler_queue.get()
+        while len(threads) < max_threads and not crawler_queue.empty():
+            thread = threading.Thread(target=process)
+            thread.setDaemon(True)
+            threads.append(thread)
+            thread.start()
 
-        if rp and not rp.can_fetch(user_agent, url):
-            print(f"blocked by robots.txt {url}")
-            continue
+        for thread in threads:
+            thread.join()
 
-        html = D(url, num_retries)
-        if not html:
-            continue
-
-        links = []
-        if scrape_callback:
-            links = scrape_callback(url, html) or links
-
-        depth = seen.get(url, 0)
-        if depth == max_depth:
-            print(f"touch max depth {url}")
-            continue
-
-        for link in itertools.chain(get_links(html), links):
-            if link and re.match(link_regex, link):
-                abs_link = parse.urljoin(url, link)
-                if abs_link not in seen:
-                    crawler_queue.put(abs_link)
-                    seen[abs_link] = depth + 1
+        for thread in threads:
+            if not thread.is_alive():
+                threads.remove(thread)
+        time.sleep(1)
 
 
 def callback(url=None, html=None):
     dom = lxml.fromstring(html)
     for e in dom.cssselect(".righttxt span"):
-        pass
-        # print(e.text_content())
+        print(e.text_content())
 
 
 if __name__ == "__main__":
-    url = "https://alexa.chinaz.com/Country/index_CN.html"
-    link_regex = r"index_CN_"
+    def read_urls():
+        with open("top-500-websites.txt", "r", encoding="utf8") as file:
+            return list(map(lambda line: line.strip(), file))
 
-    link_crawler(
-        url, link_regex, scrape_callback=callback, cache=diskcache.DiskCache(),
+    urls = read_urls()
+    threaded_crawler(
+        urls, "$^", cache={}, max_threads=10,
     )
